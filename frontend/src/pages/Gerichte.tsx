@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, Typography, TextField, Select, MenuItem, FormControl,
   InputLabel, Grid, Card, CardContent, Chip, CircularProgress,
   IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
-  Button
+  Button, Pagination
 } from '@mui/material';
 import { Edit, Delete } from '@mui/icons-material';
 import api from '../api';
@@ -19,6 +19,7 @@ interface Gericht {
 
 const KATEGORIEN = ['Alle', 'Vorspeise', 'Suppe', 'Hauptgang', 'Beilage', 'Dessert'];
 const SAISONEN = ['Alle', 'Frühling', 'Sommer', 'Herbst', 'Winter'];
+const PRO_SEITE = 48;
 
 const KATEGORIE_FARBEN: Record<string, string> = {
   Vorspeise: '#4caf50', Suppe: '#ff9800', Hauptgang: '#f44336',
@@ -28,26 +29,39 @@ const KATEGORIE_FARBEN: Record<string, string> = {
 export default function Gerichte() {
   const [gerichte, setGerichte] = useState<Gericht[]>([]);
   const [suche, setSuche] = useState('');
+  const [suchInput, setSuchInput] = useState('');
   const [kategorie, setKategorie] = useState('Alle');
   const [saison, setSaison] = useState('Alle');
   const [laden, setLaden] = useState(true);
+  const [seite, setSeite] = useState(1);
+  const [gesamt, setGesamt] = useState(0);
   const [editGericht, setEditGericht] = useState<Gericht | null>(null);
   const [editName, setEditName] = useState('');
   const [editKategorie, setEditKategorie] = useState('');
   const [editSaison, setEditSaison] = useState('');
 
-  const ladeGerichte = () => {
-    const params: Record<string, string> = {};
+  // Suchverzögerung 500ms
+  useEffect(() => {
+    const timer = setTimeout(() => setSuche(suchInput), 500);
+    return () => clearTimeout(timer);
+  }, [suchInput]);
+
+  const ladeGerichte = useCallback(() => {
+    const params: Record<string, string> = { limit: String(PRO_SEITE), offset: String((seite - 1) * PRO_SEITE) };
     if (kategorie !== 'Alle') params.kategorie = kategorie;
     if (saison !== 'Alle') params.saison = saison;
     if (suche) params.suche = suche;
     setLaden(true);
     api.get('/gerichte', { params })
-      .then(res => setGerichte(res.data))
+      .then(res => {
+        setGerichte(res.data.gerichte || res.data);
+        setGesamt(res.data.gesamt || res.data.length);
+      })
       .finally(() => setLaden(false));
-  };
+  }, [suche, kategorie, saison, seite]);
 
-  useEffect(() => { ladeGerichte(); }, [suche, kategorie, saison]);
+  useEffect(() => { setSeite(1); }, [suche, kategorie, saison]);
+  useEffect(() => { ladeGerichte(); }, [ladeGerichte]);
 
   const bearbeiten = (g: Gericht) => {
     setEditGericht(g);
@@ -58,20 +72,23 @@ export default function Gerichte() {
 
   const speichern = async () => {
     if (!editGericht) return;
-    await api.put(`/gerichte/${editGericht.id}`, {
-      name: editName,
-      kategorie: editKategorie,
-      saison: editSaison,
+    const res = await api.put(`/gerichte/${editGericht.id}`, {
+      name: editName, kategorie: editKategorie, saison: editSaison,
     });
+    // Lokal aktualisieren ohne neu zu laden
+    setGerichte(prev => prev.map(g => g.id === editGericht.id ? res.data : g));
     setEditGericht(null);
-    ladeGerichte();
   };
 
   const loeschen = async (id: number) => {
     if (!window.confirm('Gericht wirklich löschen?')) return;
     await api.delete(`/gerichte/${id}`);
-    ladeGerichte();
+    // Lokal entfernen ohne neu zu laden
+    setGerichte(prev => prev.filter(g => g.id !== id));
+    setGesamt(prev => prev - 1);
   };
+
+  const seitenAnzahl = Math.ceil(gesamt / PRO_SEITE);
 
   return (
     <Box>
@@ -79,8 +96,8 @@ export default function Gerichte() {
 
       <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
         <TextField
-          label="Suchen..." value={suche}
-          onChange={e => setSuche(e.target.value)}
+          label="Suchen..." value={suchInput}
+          onChange={e => setSuchInput(e.target.value)}
           sx={{ minWidth: 200 }} size="small"
         />
         <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -101,7 +118,7 @@ export default function Gerichte() {
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>
       ) : (
         <>
-          <Typography sx={{ color: 'text.secondary', mb: 2 }}>{gerichte.length} Gerichte gefunden</Typography>
+          <Typography sx={{ color: 'text.secondary', mb: 2 }}>{gesamt} Gerichte gefunden</Typography>
           <Grid container spacing={2}>
             {gerichte.map(g => (
               <Grid item xs={12} sm={6} md={4} key={g.id}>
@@ -133,10 +150,19 @@ export default function Gerichte() {
               </Grid>
             ))}
           </Grid>
+
+          {seitenAnzahl > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+              <Pagination
+                count={seitenAnzahl} page={seite}
+                onChange={(_, val) => setSeite(val)}
+                color="primary"
+              />
+            </Box>
+          )}
         </>
       )}
 
-      {/* Bearbeitungs-Dialog */}
       <Dialog open={!!editGericht} onClose={() => setEditGericht(null)} maxWidth="sm" fullWidth>
         <DialogTitle>Gericht bearbeiten</DialogTitle>
         <DialogContent>
