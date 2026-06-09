@@ -1,0 +1,14 @@
+{
+  "name": "menu-import",
+  "version": "1.0.0",
+  "description": "Import-Skript für Menükarten",
+  "main": "import.js",
+  "scripts": {
+    "start": "node import.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "fast-xml-parser": "^4.3.0",
+    "pg": "^8.11.3"
+  }
+}
